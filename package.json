@@ -77,9 +77,10 @@
   "dependencies": {
     "@clack/prompts": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@supabase/supabase-js": "^2.115.0",
     "imapflow": "^1.2.9",
     "node-ical": "^0.25.2",
-    "nodemailer": "^8.0.1",
+    "nodemailer": "^10.0.0",
     "smol-toml": "^1.6.0",
     "zod": "^4.3.6"
   },
@@ -93,7 +94,7 @@
     "eslint": "^9.39.2",
     "eslint-config-airbnb-extended": "^3.0.1",
     "lefthook": "^2.1.1",
-    "testcontainers": "^11.12.0",
+    "testcontainers": "^12.1.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
@@ -101,5 +102,12 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "packageManager": "pnpm@9.15.0"
+  "packageManager": "pnpm@9.15.0",
+  "allowScripts": {
+    "esbuild@0.27.2": true,
+    "lefthook@2.1.1": true,
+    "protobufjs@7.6.6": true,
+    "ssh2@1.17.0": true,
+    "unrs-resolver@1.11.1": true
+  }
 }

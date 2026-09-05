@@ -5,6 +5,7 @@
  * Subcommands:
  *   stdio     Run as MCP server over stdio (default)
  *   http      Run as MCP server over Streamable HTTP (port 8080 by default)
+ *   saas      Run as multi-tenant MCP server over HTTP (Supabase-backed accounts)
  *   setup     Interactive account setup wizard
  *   test      Test IMAP/SMTP connections
  *   config    Config management (show, path, init)
@@ -22,6 +23,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { loadConfig } from './config/loader.js';
 import ConnectionManager from './connections/manager.js';
 import { bindServer, markInitialized, mcpLog } from './logging.js';
+import { runMultiTenantHttpServer } from './multi-tenant.js';
 import registerAllPrompts from './prompts/register.js';
 import registerAllResources from './resources/register.js';
 import RateLimiter from './safety/rate-limiter.js';
@@ -47,6 +49,7 @@ Usage:
 Commands:
   stdio       Run as MCP server over stdio (default)
   http [port] Run as MCP server over Streamable HTTP (default port: 8080)
+  saas [port] Run as multi-tenant MCP server over HTTP (default port: 8080)
   account     Account management (list, add, edit, delete)
   setup       Alias for 'account add'
   test        Test connections for all or a specific account
@@ -60,6 +63,8 @@ Examples:
   email-mcp                         # Start MCP server (stdio)
   email-mcp http                    # Start HTTP server on port 8080
   email-mcp http 9090               # Start HTTP server on port 9090
+  email-mcp saas                    # Start multi-tenant HTTP server on port 8080
+  email-mcp saas 9090               # Start multi-tenant HTTP server on port 9090
   email-mcp account list             # List configured accounts
   email-mcp account add              # Add a new email account
   email-mcp account edit personal    # Edit an account
@@ -388,6 +393,17 @@ async function main(): Promise<void> {
         throw new Error(`Invalid port: ${portArg}`);
       }
       await runHttpServer(port);
+      break;
+    }
+
+    case 'saas': {
+      const portArg = process.argv[3];
+      const port = portArg !== undefined ? Number.parseInt(portArg, 10) : 8080;
+      if (Number.isNaN(port) || port < 1 || port > 65535) {
+        console.error(`Invalid port: ${portArg}`);
+        throw new Error(`Invalid port: ${portArg}`);
+      }
+      await runMultiTenantHttpServer(port);
       break;
     }
 
