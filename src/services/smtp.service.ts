@@ -2,6 +2,9 @@
  * SMTP service — pure business logic for email send operations.
  *
  * No MCP dependency — fully unit-testable.
+ *
+ * Optionally delivers via an HTTP relay (used in hosted/multi-tenant mode,
+ * where outbound SMTP ports are blocked by the hosting provider).
  */
 
 import type { IConnectionManager } from '../connections/types.js';
@@ -9,12 +12,61 @@ import type RateLimiter from '../safety/rate-limiter.js';
 import type { SendResult } from '../types/index.js';
 import type ImapService from './imap.service.js';
 
+interface RelayConfig {
+  url: string;
+  secret: string;
+  apiKey: string;
+}
+
+interface RelayPayload {
+  apiKey: string;
+  to: string;
+  cc?: string;
+  bcc?: string;
+  subject: string;
+  text?: string;
+  html?: string;
+  inReplyTo?: string;
+  references?: string;
+}
+
 export default class SmtpService {
   constructor(
     private connections: IConnectionManager,
     private rateLimiter: RateLimiter,
     private imapService: ImapService,
+    private relay?: RelayConfig,
   ) {}
+
+  // -------------------------------------------------------------------------
+  // Relay delivery (hosted mode) — bypasses local SMTP, used when Render's
+  // outbound SMTP ports are blocked.
+  // -------------------------------------------------------------------------
+
+  private async deliverViaRelay(payload: RelayPayload): Promise<SendResult> {
+    if (!this.relay) {
+      throw new Error('Relay not configured.');
+    }
+    const res = await fetch(this.relay.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.relay.secret}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const json = (await res.json()) as { messageId?: string; error?: string };
+
+    if (!res.ok) {
+      throw new Error(json.error ?? `Relay delivery failed (HTTP ${res.status}).`);
+    }
+
+    return {
+      messageId: json.messageId ?? '',
+      status: 'sent',
+    };
+  }
 
   // -------------------------------------------------------------------------
   // Send email
@@ -32,6 +84,17 @@ export default class SmtpService {
     },
   ): Promise<SendResult> {
     this.checkRateLimit(accountName);
+
+    if (this.relay) {
+      return this.deliverViaRelay({
+        apiKey: this.relay.apiKey,
+        to: options.to.join(', '),
+        cc: options.cc?.join(', '),
+        bcc: options.bcc?.join(', '),
+        subject: options.subject,
+        ...(options.html ? { html: options.body } : { text: options.body }),
+      });
+    }
 
     const account = this.connections.getAccount(accountName);
     const transport = await this.connections.getSmtpTransport(accountName);
@@ -96,6 +159,18 @@ export default class SmtpService {
       ? original.subject
       : `Re: ${original.subject}`;
 
+    if (this.relay) {
+      return this.deliverViaRelay({
+        apiKey: this.relay.apiKey,
+        to: to.join(', '),
+        cc: cc.length > 0 ? cc.join(', ') : undefined,
+        subject,
+        inReplyTo: original.messageId,
+        references: references.join(' '),
+        ...(options.html ? { html: options.body } : { text: options.body }),
+      });
+    }
+
     const transport = await this.connections.getSmtpTransport(accountName);
 
     const result = await transport.sendMail({
@@ -150,6 +225,16 @@ export default class SmtpService {
 
     const originalBody = original.bodyText ?? original.bodyHtml ?? '';
     const fullBody = (options.body ?? '') + forwardHeader + originalBody;
+
+    if (this.relay) {
+      return this.deliverViaRelay({
+        apiKey: this.relay.apiKey,
+        to: options.to.join(', '),
+        cc: options.cc?.join(', '),
+        subject,
+        text: fullBody,
+      });
+    }
 
     const transport = await this.connections.getSmtpTransport(accountName);
 

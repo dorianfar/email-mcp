@@ -91,7 +91,16 @@ async function buildSessionForApiKey(apiKey: string) {
   const connections = new ConnectionManager(config.accounts, oauthService);
   const rateLimiter = new RateLimiter(config.settings.rateLimit);
   const imapService = new ImapService(connections);
-  const smtpService = new SmtpService(connections, rateLimiter, imapService);
+
+  const relayUrl = process.env.EMAIL_RELAY_URL;
+  const relaySecret = process.env.EMAIL_RELAY_SECRET;
+  const smtpService = new SmtpService(
+    connections,
+    rateLimiter,
+    imapService,
+    relayUrl && relaySecret ? { url: relayUrl, secret: relaySecret, apiKey } : undefined,
+  );
+
   const templateService = new TemplateService();
   const calendarService = new CalendarService();
   const localCalendarService = new LocalCalendarService();
