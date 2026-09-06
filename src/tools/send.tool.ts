@@ -1,5 +1,5 @@
 /**
- * MCP tools: draft_email, confirm_send_email
+ * MCP tools: draft_email, finalize_draft
  * Two-step flow: a draft must be prepared and shown to the user before anything can be sent.
  * Drafts are also scanned for sensitive content (financial info, passwords, etc).
  */
@@ -62,7 +62,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
   // ---------------------------------------------------------------------------
   server.tool(
     'draft_email',
-    'Prepare a draft for a new email, a reply, or a forward. This tool NEVER sends anything, it only prepares and returns the draft content. Always call this tool first. Then show the FULL draft (recipients, subject, body) to the user in plain readable text in the chat, and wait for their explicit confirmation. Pay special attention to any sensitive content warning returned. Only after the user explicitly confirms should you call confirm_send_email with the returned draftId.',
+    'Prepare a draft for a new message, a reply, or a forward. This tool NEVER delivers anything, it only prepares and returns the draft content. Always call this tool first. Then show the FULL draft (recipients, subject, body) to the user in plain readable text in the chat, and wait for their explicit confirmation. Pay special attention to any sensitive content warning returned. Only after the user explicitly confirms should you call finalize_draft with the returned draftId.',
     {
       type: z.enum(['send', 'reply', 'forward']).describe('Type of draft to prepare'),
       account: z.string().describe('Account name from list_accounts'),
@@ -108,7 +108,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
           content: [
             {
               type: 'text' as const,
-              text: `DRAFT READY (not sent yet)\ndraftId: ${draftId}\n\nTo: ${params.to.join(', ')}\n${params.cc ? `Cc: ${params.cc.join(', ')}\n` : ''}Subject: ${params.subject}\n\n${params.body}${warning}\n\nShow this to the user (including any sensitive content warning above) and wait for explicit confirmation before calling confirm_send_email.`,
+              text: `DRAFT READY (not delivered yet)\ndraftId: ${draftId}\n\nTo: ${params.to.join(', ')}\n${params.cc ? `Cc: ${params.cc.join(', ')}\n` : ''}Subject: ${params.subject}\n\n${params.body}${warning}\n\nShow this to the user (including any sensitive content warning above) and wait for explicit confirmation before calling finalize_draft.`,
             },
           ],
         };
@@ -137,7 +137,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
           content: [
             {
               type: 'text' as const,
-              text: `DRAFT REPLY READY (not sent yet)\ndraftId: ${draftId}\n\nReplying to email: ${params.emailId}\nReply all: ${params.replyAll}\n\n${params.body}${warning}\n\nShow this to the user (including any sensitive content warning above) and wait for explicit confirmation before calling confirm_send_email.`,
+              text: `DRAFT REPLY READY (not delivered yet)\ndraftId: ${draftId}\n\nReplying to email: ${params.emailId}\nReply all: ${params.replyAll}\n\n${params.body}${warning}\n\nShow this to the user (including any sensitive content warning above) and wait for explicit confirmation before calling finalize_draft.`,
             },
           ],
         };
@@ -166,7 +166,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         content: [
           {
             type: 'text' as const,
-            text: `DRAFT FORWARD READY (not sent yet)\ndraftId: ${draftId}\n\nForwarding email: ${params.emailId}\nTo: ${params.to.join(', ')}\n${params.cc ? `Cc: ${params.cc.join(', ')}\n` : ''}${params.body ? `\nMessage: ${params.body}\n` : ''}${warning}\n\nShow this to the user (including any sensitive content warning above, and note that the ORIGINAL forwarded email content is not scanned) and wait for explicit confirmation before calling confirm_send_email.`,
+            text: `DRAFT FORWARD READY (not delivered yet)\ndraftId: ${draftId}\n\nForwarding email: ${params.emailId}\nTo: ${params.to.join(', ')}\n${params.cc ? `Cc: ${params.cc.join(', ')}\n` : ''}${params.body ? `\nMessage: ${params.body}\n` : ''}${warning}\n\nShow this to the user (including any sensitive content warning above, and note that the ORIGINAL forwarded email content is not scanned) and wait for explicit confirmation before calling finalize_draft.`,
           },
         ],
       };
@@ -174,11 +174,11 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
   );
 
   // ---------------------------------------------------------------------------
-  // confirm_send_email — actually sends a previously prepared draft
+  // finalize_draft — actually delivers a previously prepared draft
   // ---------------------------------------------------------------------------
   server.tool(
-    'confirm_send_email',
-    'Actually sends a previously prepared draft, identified by draftId returned from draft_email. ONLY call this after the user has explicitly confirmed in the chat that they approve the exact content shown. Never call this tool speculatively or without a prior explicit user confirmation.',
+    'finalize_draft',
+    'Finalizes and delivers a previously prepared draft, identified by draftId returned from draft_email. ONLY call this after the user has explicitly confirmed in the chat that they approve the exact content shown. Never call this tool speculatively or without a prior explicit user confirmation.',
     {
       draftId: z.string().describe('The draftId returned by draft_email'),
     },
@@ -192,7 +192,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
           content: [
             {
               type: 'text' as const,
-              text: 'No pending draft found for this draftId. It may have expired (15 min) or already been sent. Call draft_email again.',
+              text: 'No pending draft found for this draftId. It may have expired (15 min) or already been processed. Call draft_email again.',
             },
           ],
         };
@@ -214,7 +214,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
             content: [
               {
                 type: 'text' as const,
-                text: `Email sent successfully!\nTo: ${draft.to.join(', ')}\nSubject: ${draft.subject}\nMessage-ID: ${result.messageId}`,
+                text: `Message delivered successfully!\nTo: ${draft.to.join(', ')}\nSubject: ${draft.subject}\nMessage-ID: ${result.messageId}`,
               },
             ],
           };
@@ -236,7 +236,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
           );
           return {
             content: [
-              { type: 'text' as const, text: `Reply sent successfully!\nMessage-ID: ${result.messageId}` },
+              { type: 'text' as const, text: `Reply delivered successfully!\nMessage-ID: ${result.messageId}` },
             ],
           };
         }
@@ -254,7 +254,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
           content: [
             {
               type: 'text' as const,
-              text: `Email forwarded successfully!\nTo: ${draft.to.join(', ')}\nMessage-ID: ${result.messageId}`,
+              text: `Message forwarded successfully!\nTo: ${draft.to.join(', ')}\nMessage-ID: ${result.messageId}`,
             },
           ],
         };
@@ -264,7 +264,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         await audit.log(action, draft.account, {}, 'error', errMsg);
         return {
           isError: true,
-          content: [{ type: 'text' as const, text: `Failed to send: ${errMsg}` }],
+          content: [{ type: 'text' as const, text: `Failed to deliver: ${errMsg}` }],
         };
       }
     },
