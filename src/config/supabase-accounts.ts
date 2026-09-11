@@ -5,7 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { decryptSecret } from '../safety/credential-crypto.js';
-import type { AccountConfig } from '../types/index.js';
+import type { AccountConfig, OAuth2Config } from '../types/index.js';
 
 function getSupabaseClient() {
   const url = process.env.SUPABASE_URL;
@@ -14,6 +14,32 @@ function getSupabaseClient() {
     throw new Error('SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variable is missing.');
   }
   return createClient(url, serviceKey);
+}
+
+/**
+ * Builds the OAuth2 config for a row whose oauth_provider is set.
+ * client_id/client_secret are shared app-wide (one Azure/Google app for all
+ * users) and come from environment variables; only the refresh token is
+ * per-account, stored encrypted in Supabase.
+ */
+function buildOAuth2Config(provider: string, encryptedRefreshToken: string): OAuth2Config {
+  if (provider === 'microsoft') {
+    const clientId = process.env.MICROSOFT_CLIENT_ID;
+    const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      throw new Error(
+        'MICROSOFT_CLIENT_ID or MICROSOFT_CLIENT_SECRET environment variable is missing.',
+      );
+    }
+    return {
+      provider: 'microsoft',
+      clientId,
+      clientSecret,
+      refreshToken: decryptSecret(encryptedRefreshToken),
+    };
+  }
+
+  throw new Error(`Unsupported OAuth2 provider: ${provider}`);
 }
 
 /**
@@ -40,8 +66,10 @@ export async function getAccountsByApiKey(apiKey: string): Promise<AccountConfig
     name: row.account_name,
     email: row.email_address,
     username: row.email_address,
-    password: decryptSecret(row.encrypted_password),
     fullName: undefined,
+    ...(row.oauth_provider
+      ? { oauth2: buildOAuth2Config(row.oauth_provider, row.oauth_refresh_token_encrypted) }
+      : { password: decryptSecret(row.encrypted_password) }),
     imap: {
       host: row.imap_host,
       port: row.imap_port,
@@ -52,8 +80,9 @@ export async function getAccountsByApiKey(apiKey: string): Promise<AccountConfig
     smtp: {
       host: row.smtp_host,
       port: row.smtp_port,
-      tls: true,
-      starttls: false,
+      // Port 465 = implicit TLS; port 587 (used by Outlook/Microsoft 365) needs STARTTLS instead.
+      tls: row.smtp_port === 465,
+      starttls: row.smtp_port !== 465,
       verifySsl: true,
     },
   }));
