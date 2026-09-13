@@ -8,6 +8,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type ConnectionManager from '../connections/manager.js';
 import type CalendarService from '../services/calendar.service.js';
+import type DocumentsService from '../services/documents.service.js';
 import type HooksService from '../services/hooks.service.js';
 import type ImapService from '../services/imap.service.js';
 import type LocalCalendarService from '../services/local-calendar.service.js';
@@ -23,6 +24,7 @@ import registerAttachmentTools from './attachments.tool.js';
 import registerBulkTools from './bulk.tool.js';
 import registerCalendarTools from './calendar.tool.js';
 import registerContactsTools from './contacts.tool.js';
+import registerDocumentTools from './documents.tool.js';
 import registerDraftTools from './drafts.tool.js';
 import registerEmailsTools from './emails.tool.js';
 import registerFolderTools from './folders.tool.js';
@@ -50,6 +52,7 @@ export default function registerAllTools(
   schedulerService: SchedulerService,
   watcherService: WatcherService,
   hooksService: HooksService,
+  documentsService?: DocumentsService,
 ): void {
   const { readOnly } = config.settings;
 
@@ -83,5 +86,11 @@ export default function registerAllTools(
     registerFolderTools(server, imapService);
     registerTemplateWriteTools(server, templateService, imapService, smtpService);
     registerSchedulerTools(server, schedulerService);
+
+    // Documents (devis/factures/contrats library) — only available in
+    // multi-tenant (SaaS) mode, where we know which Supabase user is asking.
+    if (documentsService) {
+      registerDocumentTools(server, documentsService);
+    }
   }
 }

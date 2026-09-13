@@ -17,9 +17,10 @@ import { bindServer, markInitialized, mcpLog } from './logging.js';
 import registerAllPrompts from './prompts/register.js';
 import registerAllResources from './resources/register.js';
 import RateLimiter from './safety/rate-limiter.js';
-import { getAccountsByApiKey } from './config/supabase-accounts.js';
+import { getAccountsByApiKey, getUserIdByApiKey } from './config/supabase-accounts.js';
 import createServer, { PKG_VERSION } from './server.js';
 import CalendarService from './services/calendar.service.js';
+import DocumentsService from './services/documents.service.js';
 import HooksService from './services/hooks.service.js';
 import ImapService from './services/imap.service.js';
 import LocalCalendarService from './services/local-calendar.service.js';
@@ -87,6 +88,18 @@ async function buildSessionForApiKey(apiKey: string) {
   const accounts = await getAccountsByApiKey(apiKey);
   const config = buildDefaultConfig(accounts);
 
+  // Best-effort: the documents library only works if this API key is tied to
+  // a Supabase Auth user id. If that lookup fails for any reason, we still
+  // let the rest of the session (email) work — documentsService stays undefined
+  // and find_document/get_document_file simply won't be registered.
+  let documentsService: DocumentsService | undefined;
+  try {
+    const userId = await getUserIdByApiKey(apiKey);
+    documentsService = new DocumentsService(userId);
+  } catch {
+    documentsService = undefined;
+  }
+
   const oauthService = new OAuthService();
   const connections = new ConnectionManager(config.accounts, oauthService);
   const rateLimiter = new RateLimiter(config.settings.rateLimit);
@@ -124,6 +137,7 @@ async function buildSessionForApiKey(apiKey: string) {
     schedulerService,
     watcherService,
     hooksService,
+    documentsService,
   );
   registerAllResources(server, connections, imapService, templateService, schedulerService);
   registerAllPrompts(server);

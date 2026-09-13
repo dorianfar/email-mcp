@@ -87,3 +87,27 @@ export async function getAccountsByApiKey(apiKey: string): Promise<AccountConfig
     },
   }));
 }
+
+/**
+ * Looks up the Supabase Auth user id (UUID) that owns this API key.
+ * Used to scope access to that user's own data (e.g. the documents library)
+ * without changing the shape of getAccountsByApiKey above.
+ */
+export async function getUserIdByApiKey(apiKey: string): Promise<string> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('email_accounts')
+    .select('user_id')
+    .eq('api_key', apiKey)
+    .limit(1);
+
+  if (error) {
+    throw new Error(`Failed to fetch user from Supabase: ${error.message}`);
+  }
+  if (!data || data.length === 0 || !data[0].user_id) {
+    throw new Error('No user found for this API key.');
+  }
+
+  return data[0].user_id as string;
+}
