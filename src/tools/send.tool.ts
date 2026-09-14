@@ -11,7 +11,14 @@ import audit from '../safety/audit.js';
 import { validateInputLength } from '../safety/validation.js';
 import { detectSensitiveContent, formatSensitiveWarning } from '../safety/sensitive-detector.js';
 
+import type DocumentsService from '../services/documents.service.js';
 import type SmtpService from '../services/smtp.service.js';
+
+interface DraftAttachment {
+  filename: string;
+  contentBase64: string;
+  mimeType: string;
+}
 
 type PendingDraft =
   | {
@@ -23,6 +30,7 @@ type PendingDraft =
       cc?: string[];
       bcc?: string[];
       html: boolean;
+      attachments?: DraftAttachment[];
       createdAt: number;
     }
   | {
@@ -56,13 +64,17 @@ function cleanExpiredDrafts(): void {
   }
 }
 
-export default function registerSendTools(server: McpServer, smtpService: SmtpService): void {
+export default function registerSendTools(
+  server: McpServer,
+  smtpService: SmtpService,
+  documentsService?: DocumentsService,
+): void {
   // ---------------------------------------------------------------------------
   // draft_email — prepares a send/reply/forward. NEVER sends anything.
   // ---------------------------------------------------------------------------
   server.tool(
     'draft_email',
-    'Prepare a draft for a new message, a reply, or a forward. This tool NEVER delivers anything, it only prepares and returns the draft content. Always call this tool first. Then show the FULL draft (recipients, subject, body) to the user in plain readable text in the chat, and wait for their explicit confirmation. Pay special attention to any sensitive content warning returned. Only after the user explicitly confirms should you call finalize_draft with the returned draftId.',
+    'Prepare a draft for a new message, a reply, or a forward. This tool NEVER delivers anything, it only prepares and returns the draft content. Always call this tool first. Then show the FULL draft (recipients, subject, body, and any attachments) to the user in plain readable text in the chat, and wait for their explicit confirmation. Pay special attention to any sensitive content warning returned. Only after the user explicitly confirms should you call finalize_draft with the returned draftId. To attach a document (devis/facture/contrat), first call find_document to get its documentId, then pass it in the attachments array here (send only).',
     {
       type: z.enum(['send', 'reply', 'forward']).describe('Type of draft to prepare'),
       account: z.string().describe('Account name from list_accounts'),
@@ -75,6 +87,10 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
       emailId: z.string().optional().describe('Original email ID (required for reply/forward)'),
       mailbox: z.string().default('INBOX').describe('Mailbox where the original email is'),
       replyAll: z.boolean().default(false).describe('Reply to all recipients (reply only)'),
+      attachments: z
+        .array(z.object({ documentId: z.string().describe('documentId returned by find_document') }))
+        .optional()
+        .describe('Documents to attach from the documents library (send only)'),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     async (params) => {
@@ -91,6 +107,43 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
         }
         validateInputLength(params.subject, 998, 'Subject');
         validateInputLength(params.body, 5_000_000, 'Body');
+
+        let attachments: DraftAttachment[] | undefined;
+        if (params.attachments && params.attachments.length > 0) {
+          if (!documentsService) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Document attachments are not available in this session (documents library not configured).',
+                },
+              ],
+            };
+          }
+          try {
+            attachments = [];
+            for (const att of params.attachments) {
+              const file = await documentsService.getFile(att.documentId);
+              attachments.push({
+                filename: file.filename,
+                contentBase64: file.contentBase64,
+                mimeType: file.mimeType,
+              });
+            }
+          } catch (err) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `Failed to attach document: ${err instanceof Error ? err.message : String(err)}`,
+                },
+              ],
+            };
+          }
+        }
+
         pendingDrafts.set(draftId, {
           kind: 'send',
           account: params.account,
@@ -100,15 +153,20 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
           cc: params.cc,
           bcc: params.bcc,
           html: params.html,
+          attachments,
           createdAt,
         });
         const { flags } = detectSensitiveContent(params.subject, params.body);
         const warning = formatSensitiveWarning(flags);
+        const attachmentLine =
+          attachments && attachments.length > 0
+            ? `\nAttachments: ${attachments.map((a) => a.filename).join(', ')}`
+            : '';
         return {
           content: [
             {
               type: 'text' as const,
-              text: `DRAFT READY (not delivered yet)\ndraftId: ${draftId}\n\nTo: ${params.to.join(', ')}\n${params.cc ? `Cc: ${params.cc.join(', ')}\n` : ''}Subject: ${params.subject}\n\n${params.body}${warning}\n\nShow this to the user (including any sensitive content warning above) and wait for explicit confirmation before calling finalize_draft.`,
+              text: `DRAFT READY (not delivered yet)\ndraftId: ${draftId}\n\nTo: ${params.to.join(', ')}\n${params.cc ? `Cc: ${params.cc.join(', ')}\n` : ''}Subject: ${params.subject}\n${attachmentLine}\n\n${params.body}${warning}\n\nShow this to the user (including any sensitive content warning above and the attachment list) and wait for explicit confirmation before calling finalize_draft.`,
             },
           ],
         };
@@ -208,6 +266,7 @@ export default function registerSendTools(server: McpServer, smtpService: SmtpSe
             cc: draft.cc,
             bcc: draft.bcc,
             html: draft.html,
+            attachments: draft.attachments,
           });
           await audit.log('send_email', draft.account, { to: draft.to, subject: draft.subject }, 'ok');
           return {

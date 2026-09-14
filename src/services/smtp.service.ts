@@ -18,6 +18,12 @@ interface RelayConfig {
   apiKey: string;
 }
 
+interface RelayAttachment {
+  filename: string;
+  contentBase64: string;
+  mimeType: string;
+}
+
 interface RelayPayload {
   apiKey: string;
   to: string;
@@ -28,6 +34,13 @@ interface RelayPayload {
   html?: string;
   inReplyTo?: string;
   references?: string;
+  attachments?: RelayAttachment[];
+}
+
+export interface EmailAttachment {
+  filename: string;
+  contentBase64: string;
+  mimeType: string;
 }
 
 export default class SmtpService {
@@ -81,6 +94,7 @@ export default class SmtpService {
       cc?: string[];
       bcc?: string[];
       html?: boolean;
+      attachments?: EmailAttachment[];
     },
   ): Promise<SendResult> {
     this.checkRateLimit(accountName);
@@ -93,6 +107,11 @@ export default class SmtpService {
         bcc: options.bcc?.join(', '),
         subject: options.subject,
         ...(options.html ? { html: options.body } : { text: options.body }),
+        attachments: options.attachments?.map((a) => ({
+          filename: a.filename,
+          contentBase64: a.contentBase64,
+          mimeType: a.mimeType,
+        })),
       });
     }
 
@@ -106,6 +125,11 @@ export default class SmtpService {
       bcc: options.bcc?.join(', '),
       subject: options.subject,
       ...(options.html ? { html: options.body } : { text: options.body }),
+      attachments: options.attachments?.map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.contentBase64, 'base64'),
+        contentType: a.mimeType,
+      })),
     });
 
     return {

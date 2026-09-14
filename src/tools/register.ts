@@ -78,7 +78,7 @@ export default function registerAllTools(
 
   // Write tools — skipped in read-only mode
   if (!readOnly) {
-    registerSendTools(server, smtpService);
+    registerSendTools(server, smtpService, documentsService);
     registerManageTools(server, imapService);
     registerLabelTools(server, imapService);
     registerBulkTools(server, imapService);
