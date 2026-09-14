@@ -19,7 +19,7 @@ export default function registerDocumentTools(
     {
       query: z.string().describe('Client name (or part of it) to search for'),
       documentType: z
-        .enum(['devis', 'facture', 'contrat'])
+        .enum(['devis', 'facture', 'contrat', 'photo', 'attestation', 'bon_commande', 'bon_livraison', 'rib'])
         .optional()
         .describe('Restrict to this document type, if known'),
     },
